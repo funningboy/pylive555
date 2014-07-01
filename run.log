@@ -1,0 +1,6 @@
+running build_ext
+skipping './wrap/ctestRtspClient.cpp' Cython extension (up-to-date)
+building 'live555' extension
+gcc -pthread -fno-strict-aliasing -DNDEBUG -g -fwrapv -O2 -Wall -Wstrict-prototypes -fPIC -I../live/liveMedia/include -I../live/BasicUsageEnvironment/include -I../live/UsageEnvironment/include -I../live/groupsock/include -I../live/./wrap/include -I/usr/include/python2.7 -c ./wrap/ctestRtspClient.cpp -o build/temp.linux-i686-2.7/./wrap/ctestRtspClient.o -fPIC
+gcc -pthread -fno-strict-aliasing -DNDEBUG -g -fwrapv -O2 -Wall -Wstrict-prototypes -fPIC -I../live/liveMedia/include -I../live/BasicUsageEnvironment/include -I../live/UsageEnvironment/include -I../live/groupsock/include -I../live/./wrap/include -I/usr/include/python2.7 -c ./wrap/waptestRtspClient.cpp -o build/temp.linux-i686-2.7/./wrap/waptestRtspClient.o -fPIC
+g++ -pthread -shared -Wl,-O1 -Wl,-Bsymbolic-functions -Wl,-Bsymbolic-functions -Wl,-z,relro build/temp.linux-i686-2.7/./wrap/ctestRtspClient.o build/temp.linux-i686-2.7/./wrap/waptestRtspClient.o -L../live/liveMedia -L../live/UsageEnvironment -L../live/groupsock -lliveMedia -lgroupsock -lBasicUsageEnvironment -lUsageEnvironment -o /home/sean/prj/live555/live_test/live555.so
