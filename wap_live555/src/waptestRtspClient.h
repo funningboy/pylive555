@@ -6,18 +6,22 @@
 #include "BasicUsageEnvironment.hh"
 #include <iostream>
 #include <list>
+#include <ostream>
+#include <fstream>
+#include <string>
 
 using namespace std;
 
 // by default, print verbose output from each "RTSPClient"
 #define RTSP_CLIENT_VERBOSITY_LEVEL 1
 
+typedef void (*pyfunc)(u_int8_t *frame, int size, void *user_data);
+
 class StreamClientState;
 class ourRTSPClient;
 class waptestRtspClient;
-class waptestFrame;
-class waptestFramefifo;
 class DummySink;
+
 
 // RTSP 'response handlers':
 void continueAfterDESCRIBE(RTSPClient* rtspClient, int resultCode, char* resultString);
@@ -88,7 +92,7 @@ private:
   MediaSubsession& fSubsession;
   char* fStreamId;
   RTSPClient* fRtspClient;
-  void* frameCallback;
+  int first;
 };
 
 
@@ -98,7 +102,10 @@ public:
 				  int verbosityLevel = 0,
 				  char const* applicationName = NULL,
 				  portNumBits tunnelOverHTTPPortNum = 0);
-
+ public:
+  void registerCallback(pyfunc func, void *user_data);
+  void onFrameCallback(u_int8_t* frame, long size);
+  void onDebug(u_int8_t* frame, long size);
 protected:
   ourRTSPClient(UsageEnvironment& env, char const* rtspURL,
 		int verbosityLevel, char const* applicationName, portNumBits tunnelOverHTTPPortNum);
@@ -107,10 +114,13 @@ protected:
 
 public:
   StreamClientState scs;
+  pyfunc func;
+  void* user_data;
+  H264VideoFileSink* fileSink;
 };
 
 
-// Rtsp Client
+// wap RTSP Client
 class waptestRtspClient {
   public:
     waptestRtspClient() {}
@@ -119,32 +129,12 @@ class waptestRtspClient {
    void onCreate(char const* progName, char const* rtspURL);
    void onRun();
    void onDestory();
-};
-
-// Frame
-class waptestFrame {
-  public:
-    waptestFrame(unsigned char** frame, int length): length(length) { }
-   ~waptestFrame() {}
-  public:
-   std::list<unsigned char> frame;
-   unsigned int length;
-};
-
-// Frame Fifo
-class waptestFramefifo {
-  public:
-    waptestFramefifo(unsigned int deep): deep(deep) {}
-   ~waptestFramefifo() {}
-  public:
-    void onPort(waptestFrame* frame) { fifo.push_back(frame); }
-    void onExport(waptestFrame* frame) { frame = fifo.front(); fifo.pop_front(); }
-    bool isEmpty(){ return fifo.size() == 0; }
-    bool isFull(){  return fifo.size() >= deep; }
+   void registerCallback(pyfunc func, void *user_data);
   private:
-    std::list<waptestFrame*> fifo;
-    unsigned int deep;
+   pyfunc func;
+   void* user_data;
 };
+
 
 
 #endif

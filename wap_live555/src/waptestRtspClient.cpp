@@ -4,7 +4,6 @@
 
 // Counts how many streams (i.e., "RTSPClient"s) are currently in use.
 static unsigned rtspClientCount = 0;
-
 static class TaskScheduler* scheduler;
 static class UsageEnvironment*  env;
 
@@ -278,11 +277,33 @@ ourRTSPClient* ourRTSPClient::createNew(UsageEnvironment& env, char const* rtspU
 ourRTSPClient::ourRTSPClient(UsageEnvironment& env, char const* rtspURL,
 			     int verbosityLevel, char const* applicationName, portNumBits tunnelOverHTTPPortNum)
   : RTSPClient(env,rtspURL, verbosityLevel, applicationName, tunnelOverHTTPPortNum, -1) { // over http/udp
+  fileSink = H264VideoFileSink::createNew(env, "c_live555.h264");
 }
 
 ourRTSPClient::~ourRTSPClient() {
 }
 
+void
+ourRTSPClient::onFrameCallback(u_int8_t* frame, long size)
+{
+  this->func(frame, size, this->user_data);
+}
+
+void
+ourRTSPClient::onDebug(u_int8_t* frame, long size)
+{
+  struct timeval tv={0,0};
+  u_int8_t start_code[] = {0x00, 0x00, 0x00, 0x01};
+  this->fileSink->addData(start_code, 4, tv);
+  this->fileSink->addData(frame, size, tv);
+}
+
+void
+ourRTSPClient::registerCallback(pyfunc func, void *user_data)
+{
+  this->func = func;
+  this->user_data = user_data;
+}
 
 // Implementation of "StreamClientState":
 
@@ -318,6 +339,7 @@ DummySink::DummySink(UsageEnvironment& env, MediaSubsession& subsession, char co
     fRtspClient(rtspClient){
   fStreamId = strDup(streamId);
   fReceiveBuffer = new u_int8_t[DUMMY_SINK_RECEIVE_BUFFER_SIZE];
+  first = 1;
 }
 
 DummySink::~DummySink() {
@@ -337,15 +359,26 @@ void DummySink::afterGettingFrame(void* clientData, unsigned frameSize, unsigned
 void DummySink::afterGettingFrame(unsigned frameSize, unsigned numTruncatedBytes,
 				  struct timeval presentationTime, unsigned /*durationInMicroseconds*/) {
 
-// For H.264 video stream, we use a special sink that insert start_codes:
-  unsigned numSPropRecords;
-  unsigned char start_code[4] = {0x00, 0x00, 0x00, 0x01};
-  SPropRecord* sPropRecords = parseSPropParameterSets(fSubsession.fmtp_spropparametersets(), numSPropRecords);
-  for(unsigned i=0;i<numSPropRecords;i++) {
-      waptestFrame *frame = new waptestFrame(, sPropRecords[i].sPropLength+4)
-      //start_code + sPropRecords[i].sPropBytes
+  ourRTSPClient* nRtspClient = ((ourRTSPClient*)fRtspClient);
+  if (first == 1) {
+    // For H.264 video stream, we use a special sink that insert start_codes:
+    unsigned numSPropRecords;
+    SPropRecord* sPropRecords = parseSPropParameterSets(fSubsession.fmtp_spropparametersets(), numSPropRecords);
+    // [Sequence Parameter Sets (SPS), Picture Parameter Set (PPS)]
+    for(unsigned i=0; i<numSPropRecords; i++) {
+      nRtspClient->onFrameCallback(sPropRecords[i].sPropBytes, sPropRecords[i].sPropLength);
+#ifdef DEBUG_PRINT_EACH_RECEIVED_FRAME
+      nRtspClient->onDebug(sPropRecords[i].sPropBytes, sPropRecords[i].sPropLength);
+#endif
+    }
+    delete[] sPropRecords;
+    first = 0;
   }
-  delete[] sPropRecords;
+
+  nRtspClient->onFrameCallback(fReceiveBuffer, DUMMY_SINK_RECEIVE_BUFFER_SIZE);
+#ifdef DEBUG_PRINT_EACH_RECEIVED_FRAME
+  nRtspClient->onDebug(fReceiveBuffer, DUMMY_SINK_RECEIVE_BUFFER_SIZE);
+#endif
 
   // We've just received a frame of data.  (Optionally) print out information about it:
 #ifdef DEBUG_PRINT_EACH_RECEIVED_FRAME
@@ -391,12 +424,12 @@ waptestRtspClient::onCreate(char const* progName, char const* rtspURL)
 
   // Begin by creating a "RTSPClient" object.  Note that there is a separate "RTSPClient" object for each stream that we wish
   // to receive (even if more than stream uses the same "rtsp://" URL).
-  RTSPClient* rtspClient = ourRTSPClient::createNew((*env), rtspURL, RTSP_CLIENT_VERBOSITY_LEVEL, progName);
+  ourRTSPClient* rtspClient = ourRTSPClient::createNew((*env), rtspURL, RTSP_CLIENT_VERBOSITY_LEVEL, progName);
   if (rtspClient == NULL) {
     (*env) << "Failed to create a RTSP client for URL \"" << rtspURL << "\": " << (*env).getResultMsg() << "\n";
     return;
   }
-
+  rtspClient->registerCallback(this->func, this->user_data);
   ++rtspClientCount;
 
   // Next, send a RTSP "DESCRIBE" command, to get a SDP description for the stream.
@@ -405,10 +438,19 @@ waptestRtspClient::onCreate(char const* progName, char const* rtspURL)
   rtspClient->sendDescribeCommand(continueAfterDESCRIBE);
 };
 
+/* onRegister callback */
+void
+waptestRtspClient::registerCallback(pyfunc func, void *user_data)
+{
+  this->func = func;
+  this->user_data = user_data;
+}
+
 /* start onRun loop */
 void
 waptestRtspClient::onRun()
 {
+  eventLoopWatchVariable = 0;
   env->taskScheduler().doEventLoop(&eventLoopWatchVariable);
 }
 
@@ -416,16 +458,5 @@ void
 waptestRtspClient::onDestory()
 {
   eventLoopWatchVariable = 1;
-}
-
-// exe test
-int main(int argc, char** argv) {
-
-  waptestRtspClient *client = new waptestRtspClient();
-  client->onCreate("waptestRtspClient", "rtsp://192.168.1.6:1234");
-  client->onRun();
-  client->onDestory();
-
-  return 0;
 }
 
